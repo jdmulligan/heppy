@@ -28,6 +28,8 @@ def main():
                       default=1000, type=int)
   args = parser.parse_args()	
 
+  plot_hadrons = False
+
   # Initialize histogram dictionary
   hDict = initializeHistograms()
   
@@ -40,9 +42,9 @@ def main():
   # jet finder
   fj.ClusterSequence.print_banner()
   print()
-  jetR = 0.4
+  jetR = 1.
   jet_def = fj.JetDefinition(fj.antikt_algorithm, jetR)
-  jet_selector = fj.SelectorPtMin(70.0) & fj.SelectorAbsEtaMax(2)
+  jet_selector = fj.SelectorPtMin(50.0) & fj.SelectorAbsEtaMax(2)
 
   # Jet re-clustering definition, for primary Lund plane
   jet_def_lund = fj.JetDefinition(fj.cambridge_algorithm, jetR)
@@ -60,12 +62,17 @@ def main():
       pbar.close()
       print('End of HepMC file at event {} '.format(nstop))
       break
+
+    if plot_hadrons:
+      hadrons = get_hadrons(event_hepmc)
+      jets_hadron = find_jets(jet_def, jet_selector, hadrons)
+      all_jets_hadron.extend(jets_hadron)
     
-    hadrons = get_hadrons(event_hepmc)
-    jets_hadron = find_jets(jet_def, jet_selector, hadrons)
-    all_jets_hadron.extend(jets_hadron)
-    
-    partons = get_partons(event_hepmc, hDict)
+    #partons = get_final_partons(event_hepmc, hDict)
+    first_parton = get_first_parton(event_hepmc, hDict)
+    print('First parton E: {}'.format(first_parton.momentum.e))
+    partons = []
+    partons.append(fj.PseudoJet(first_parton.momentum.px, first_parton.momentum.py, first_parton.momentum.pz, first_parton.momentum.e))
     jets_parton = find_jets(jet_def, jet_selector, partons)
     all_jets_parton.extend(jets_parton)
     
@@ -77,20 +84,22 @@ def main():
       break
 
   print('Constructing histograms...')
-    
-  n_jets_hadron = len(all_jets_hadron)
+
+  if plot_hadrons:
+    n_jets_hadron = len(all_jets_hadron)
+    print('n_jets_hadron: {}'.format(n_jets_hadron))
   n_jets_parton = len(all_jets_parton)
-  print('n_jets_hadron: {}'.format(n_jets_hadron))
   print('n_jets_parton: {}'.format(n_jets_parton))
         
   # Fill histogram
-  [fill_jet_histogram(hDict, jet) for jet in all_jets_hadron]
+  if plot_hadrons:
+    [fill_jet_histogram(hDict, jet) for jet in all_jets_hadron]
 
-  # Fill Lund diagram
-  # Note: l in lunds, l is the list of splittings in a given jet (following hardest splitting)
-  lunds_hadron = [lund_gen.result(jet) for jet in all_jets_hadron]
-  [fill_lund_histogram(hDict, "hLundHadron", splitting_list) for splitting_list in lunds_hadron]
-  hDict['hLundHadron'].Scale(1./n_jets_hadron, "width")
+    # Fill Lund diagram
+    # Note: l in lunds, l is the list of splittings in a given jet (following hardest splitting)
+    lunds_hadron = [lund_gen.result(jet) for jet in all_jets_hadron]
+    [fill_lund_histogram(hDict, "hLundHadron", splitting_list) for splitting_list in lunds_hadron]
+    hDict['hLundHadron'].Scale(1./n_jets_hadron, "width")
   
   lunds_parton = [lund_gen.result(jet) for jet in all_jets_parton]
   [fill_lund_histogram(hDict, "hLundParton", splitting_list) for splitting_list in lunds_parton]
@@ -123,7 +132,7 @@ def initializeHistograms():
   hVertices.GetXaxis().SetTitle('n_vertices')
   hVertices.GetXaxis().SetTitle('n_particles')
   hDict['hVertices'] = hVertices
-        
+
   hLundHadron = ROOT.TH2D("hLundHadron", "hLundHadron", 80, 0, 8, 80, -3, 5)
   hLundHadron.GetXaxis().SetTitle('ln(1/#Delta R)')
   hLundHadron.GetYaxis().SetTitle('ln(k_{T})')
@@ -156,7 +165,7 @@ def get_hadrons(hepmc_event):
   return fjparts
 
 #--------------------------------------------------------------
-def get_partons(hepmc_event, hDict):
+def get_final_partons(hepmc_event, hDict):
 
   fjparts = []
   partons = []
@@ -190,6 +199,25 @@ def get_partons(hepmc_event, hDict):
     fjparts.append(psj)
 
   return fjparts
+
+#--------------------------------------------------------------
+def get_first_parton(hepmc_event, hDict):
+
+  for particle in hepmc_event.particles:
+    parent_vertex = particle.production_vertex
+    parent_vertex_time = parent_vertex.position.t
+    n_parents = len(particle.parents)
+    is_parton = False
+    is_first_parton = False
+    if abs(parent_vertex_time - 100) > 1e-3:
+      is_parton = True
+    if is_parton and n_parents is 0:    
+      is_first_parton = True
+
+    if is_first_parton:
+      return particle
+
+  return None
 
 #--------------------------------------------------------------
 def find_jets(jet_def, jet_selector, fjparts):
