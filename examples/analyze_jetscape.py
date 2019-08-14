@@ -69,11 +69,21 @@ def main():
       all_jets_hadron.extend(jets_hadron)
     
     #partons = get_final_partons(event_hepmc, hDict)
-    first_parton = get_first_parton(event_hepmc, hDict)
-    print('First parton E: {}'.format(first_parton.momentum.e))
-    partons = []
-    partons.append(fj.PseudoJet(first_parton.momentum.px, first_parton.momentum.py, first_parton.momentum.pz, first_parton.momentum.e))
-    jets_parton = find_jets(jet_def, jet_selector, partons)
+
+    # Get the first parton in the shower (it is apparently the child of the initiating parton)
+    first_parton = []
+    first_parton.append(get_first_parton(event_hepmc, hDict).children[0])
+    #print('-----------------------------')
+    #print('First parton E: {}'.format(first_parton[0].momentum.e))
+
+    n = 3
+    parton_list = get_nth_partons(first_parton, n)
+    #print('Total number of partons: {}'.format(len(parton_list)))
+
+    fj_particles = []
+    for parton in parton_list:
+      fj_particles.append(fj.PseudoJet(parton.momentum.px, parton.momentum.py, parton.momentum.pz, parton.momentum.e))
+    jets_parton = find_jets(jet_def, jet_selector, fj_particles)
     all_jets_parton.extend(jets_parton)
     
     pbar.update()
@@ -108,6 +118,44 @@ def main():
   plot_histograms(hDict)
 
 #---------------------------------------------------------------
+# Get a list of the children of a given parton.
+# If the parton has no children, return the parton itself.
+def get_children(parton):
+
+  # First, check if the parton has no children -- if so, return the parton
+  # Then, check if the parent has the same energy as the child -- if so skip down to the child
+  children_list = []
+  children = parton.children
+  if len(children) is 0:
+    children_list.append(parton)
+  elif len(children) is 1 and abs(children[0].momentum.e - parton.momentum.e) < 1e-5:
+    #print('parent E == child E ... move one level down')
+    return get_children(children[0])
+  else:
+    children_list.extend(children)
+
+  return children_list
+    
+#---------------------------------------------------------------
+def get_nth_partons(parton_list, n):
+
+  #print('get_nth_partons from {} partons at level {}'.format(len(parton_list), n))
+  
+  if n is 0:
+    return parton_list
+  else:
+    children_list = []
+    for parton in parton_list:
+      children = get_children(parton)
+      children_list.extend(children)
+      
+      #print('parent E: {}'.format(parton.momentum.e))
+      #for child in children:
+        #print('child E: {}'.format(child.momentum.e))
+
+    return get_nth_partons(children_list, n-1)
+  
+#---------------------------------------------------------------
 def initializeHistograms():
 
   hDict = {}
@@ -133,12 +181,12 @@ def initializeHistograms():
   hVertices.GetXaxis().SetTitle('n_particles')
   hDict['hVertices'] = hVertices
 
-  hLundHadron = ROOT.TH2D("hLundHadron", "hLundHadron", 80, 0, 8, 80, -3, 5)
+  hLundHadron = ROOT.TH2D("hLundHadron", "hLundHadron", 80, 0, 8, 80, -3, 6)
   hLundHadron.GetXaxis().SetTitle('ln(1/#Delta R)')
   hLundHadron.GetYaxis().SetTitle('ln(k_{T})')
   hDict['hLundHadron'] = hLundHadron
 
-  hLundParton = ROOT.TH2D("hLundParton", "hLundParton", 80, 0, 8, 80, -3, 5)
+  hLundParton = ROOT.TH2D("hLundParton", "hLundParton", 80, 0, 8, 80, -3, 6)
   hLundParton.GetXaxis().SetTitle('ln(1/#Delta R)')
   hLundParton.GetYaxis().SetTitle('ln(k_{T})')
   hDict['hLundParton'] = hLundParton
